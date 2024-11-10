@@ -1,53 +1,93 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>  //getopt
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <semaphore.h>
 
 #include "socket.h"
 
 
-void* udp_server_rx_thread(void *arg)
+int main(int argc, char* argv[])
 {
-    int sfd;
-    int rcv_len, ret = 0;
-    struct sockaddr_in cliaddr;
-    socklen_t addr_len;
-    static char rcv_buf[1500];
+    char *opt_string = "utsc";
+    int opt, ret;
+    int udptcp = -1; //1-udp, 2-tcp
+    int serverclient = -1; //1-server, 2-client
+    pthread_t thread_rx, thread_tx, thread_stat;
 
-    addr_len = sizeof(cliaddr);
-
-    //create udp server:
-    sfd = udp_server_init();
-    if (sfd < 0) {
-        printf("udp_server_init fail. exit\n");
-        return NULL;
+    while ((opt = getopt(argc, argv, opt_string)) != -1) {
+        switch (opt) {
+        case 'u':
+            udptcp = 1;
+            break;
+        case 't':
+            udptcp = 2;
+            break;
+        case 's':
+            serverclient = 1;
+            break;
+        case 'c':
+            serverclient = 2;
+            break;
+        default:
+            printf("Usage: ./socket -u/t -s/c\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
-    while (1) {
-        rcv_len = recvfrom(sfd, rcv_buf, sizeof(rcv_buf), 0, (struct sockaddr *)&cliaddr, &addr_len);
-        printf("recvfrom return len: %d\n", rcv_len);
-
-        rcv_len = sendto(sfd, rcv_buf, rcv_len, 0, (struct sockaddr *)&cliaddr, addr_len);
-        printf("sendto return len: %d\n", rcv_len);
+    if (udptcp < 0 || serverclient < 0) {
+        printf("Not assign udp/tcp or server/client\n");
+        printf("Usage: ./socket -u/t -s/c\n");
+        exit(EXIT_FAILURE);
     }
 
-    return NULL;
-}
+    printf("Start %s %s\n", udptcp == 1 ? "udp" : "tcp",
+                          serverclient == 1 ? "server" : "client");
 
+    if (1 == udptcp && 1 == serverclient) {
+        ret = udp_server_init();
+        if (ret < 0) {
+            printf("udp_server_init fail. exit\n");
+            exit(EXIT_FAILURE);
+        }
 
+        ret = pthread_create(&thread_rx, NULL, udp_server_rx_thread, NULL);
+        if (0 != ret) {
+            printf("pthread_create return:%d, line:%d\n", ret, __LINE__);
+            exit(EXIT_FAILURE);
+        }
+        ret = pthread_create(&thread_tx, NULL, udp_server_tx_thread, NULL);
+        if (0 != ret) {
+            printf("pthread_create return:%d, line:%d\n", ret, __LINE__);
+            exit(EXIT_FAILURE);
+        }
+        pthread_join(thread_rx, NULL);
+        pthread_join(thread_tx, NULL);
+    } else if (1 == udptcp && 2 == serverclient) {
+        ret = udp_client_init();
+        if (ret < 0) {
+            printf("udp_client_init fail. exit\n");
+            exit(EXIT_FAILURE);
+        }
+        ret = pthread_create(&thread_rx, NULL, udp_client_rx_thread, NULL);
+        if (0 != ret) {
+            printf("pthread_create return:%d, line:%d\n", ret, __LINE__);
+            exit(EXIT_FAILURE);
+        }
+        ret = pthread_create(&thread_stat, NULL, stat_rx_speed_thread, NULL);
+        if (0 != ret) {
+            printf("pthread_create return:%d, line:%d\n", ret, __LINE__);
+            exit(EXIT_FAILURE);
+        }
+        pthread_join(thread_rx, NULL);
+        pthread_join(thread_stat, NULL);
+    }
 
-int main(int argc, char argv[])
-{
-
-
-
-    printf("Usage: ./main -u -s -p 1000\n");
-
-
-    udp_server_rx_thread(NULL);
-
-
+    printf("program exit.");
 
     return 0;
 }
