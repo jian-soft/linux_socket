@@ -71,8 +71,6 @@ void* udp_client_rx_thread(void *arg)
 {
     int sfd = get_udpc_sfd();
     int rcv_len, ret = 0;
-    struct sockaddr_in cliaddr;
-    socklen_t addr_len;
     static char rcv_buf[1500];
 
     if (sfd < 0) {

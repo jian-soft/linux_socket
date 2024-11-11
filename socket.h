@@ -16,6 +16,7 @@ void* tcp_server_tx_thread(void *arg);
 
 
 int tcp_client_init();
+void* tcp_client_connect_thread(void *arg);
 void* tcp_client_rx_thread(void *arg);
 void* tcp_client_tx_thread(void *arg);
 

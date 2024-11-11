@@ -50,6 +50,7 @@ int tcp_server_init()
 {
     int ret, sfd;
     struct sockaddr_in servaddr;
+    int opt = 1;
 
     sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sfd <= 0) {
@@ -57,8 +58,14 @@ int tcp_server_init()
         return -1;
     }
 
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET; // IPv4
+    ret = setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
+    if (0 != ret) {
+        perror("setsockopt");
+        close(sfd);
+        return -1;
+    }
+
+    servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = INADDR_ANY;
     servaddr.sin_port = htons(TCP_SERVER_PORT);
 
@@ -79,11 +86,7 @@ void* tcp_server_listen_thread(void *arg)
     int client_sfd, ret;
     struct sockaddr_in clientaddr;
     socklen_t addrlen = sizeof(clientaddr);
-
-    if (sfd < 0) {
-        printf("sfd < 0!!!, return\n");
-        return NULL;
-    }
+    char ipstr[INET_ADDRSTRLEN];
 
 RECONNECT:
     ret = listen(sfd, 3);
@@ -97,6 +100,9 @@ RECONNECT:
         perror("accept");
         return NULL;
     }
+
+    inet_ntop(AF_INET, &(clientaddr.sin_addr), ipstr, INET_ADDRSTRLEN);
+    printf("TCP server: a client connected: ip:%s, port:%d\n", ipstr, ntohs(clientaddr.sin_port));
 
     set_tcps_client_sfd(client_sfd);
     set_tcps_connected();
@@ -113,20 +119,17 @@ RECONNECT:
     return NULL;
 }
 
-
-
 void* tcp_server_rx_thread(void *arg)
 {
     int sfd;
-    int rcv_len, ret = 0;
+    int rcv_len;
     static char rcv_buf[1500];
-
+RETRY:
     while (!is_tcps_connected()) {
-        sleep(1);
+        sleep(2);
     }
 
     sfd = get_tcps_client_sfd();
-
     while (1) {
         rcv_len = recv(sfd, rcv_buf, sizeof(rcv_buf), 0);
         if (rcv_len < 0) {
@@ -140,6 +143,9 @@ void* tcp_server_rx_thread(void *arg)
     }
 
     set_tcps_disconnected();
+
+    goto RETRY;
+
     return NULL;
 }
 
@@ -149,25 +155,25 @@ void* tcp_server_tx_thread(void *arg)
     int ret, sfd;
     static char snd_buf[1400];
 
-    while (1) {
-        if (!is_tcps_connected()) {
-            sleep(1);
-            continue;
-        }
-
-        sfd = get_tcps_client_sfd();
-
-        while (1) {
-            ret = send(sfd, snd_buf, 1400, 0);
-            if (ret < 0) {
-                perror("send error");
-                break;
-            }
-
-            //printf("send return: %d\n", ret);
-            //usleep(1000);  //1400B 1ms: 5.7Mbps
-        }
+RETRY:
+    while (!is_tcps_connected()) {
+        sleep(2);
     }
+
+    sfd = get_tcps_client_sfd();
+    while (1) {
+        ret = send(sfd, snd_buf, 1400, 0);
+        if (ret < 0) {
+            perror("send error");
+            break;
+        }
+
+        //usleep(1000);  //1400B 1ms: 5.7Mbps
+    }
+
+    set_tcps_disconnected();
+
+    goto RETRY;
 
     return NULL;
 }
